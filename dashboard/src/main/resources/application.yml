@@ -29,7 +29,7 @@ spring :
   datasource:
     username: ${MYSQL_USER:root}
     password: ${MYSQL_PASS:root}
-    url: jdbc:mysql://${MYSQL_HOST:localhost}:3306/hotkey_db?useUnicode=true&characterEncoding=utf-8&useSSL=true&serverTimezone=UTC&useTimezone=true&serverTimezone=GMT
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:13316/hotkey_db?useUnicode=true&characterEncoding=utf-8&useSSL=true&serverTimezone=UTC&useTimezone=true&serverTimezone=GMT
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       max-lifetime: 120000
@@ -47,5 +47,5 @@ pagehelper:
 #    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 
 etcd:
-  server: ${etcdServer:http://127.0.0.1:2379}
+  server: ${etcdServer:http://127.0.0.1:12379}
 
