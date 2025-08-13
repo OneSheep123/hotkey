@@ -34,12 +34,14 @@ import java.util.concurrent.*;
 public class EtcdStarter {
 
     public void start() {
+        // 30s检测worker变化
         fetchWorkerInfo();
 
+        // 一次性初始化任务，拉到规则之后结束
         fetchRule();
 
 //        startWatchWorker();
-
+        // 监听规则变化
         startWatchRule();
 
         //监听热key事件，只监听手工添加、删除的key
@@ -69,50 +71,6 @@ public class EtcdStarter {
         }
 
     }
-
-    /**
-     * 异步开始监听worker变化信息
-     */
-//    private void startWatchWorker() {
-//        CompletableFuture.runAsync(() -> {
-//            JdLogger.info(getClass(), "--- begin watch worker change ----");
-//            IConfigCenter configCenter = EtcdConfigFactory.configCenter();
-//
-//            try {
-//                //注意监听是只监听自己appName的，不监听default目录。但是下面的定时任务是如果appName下没有worker，就用default的
-//                //这样譬如appName没有自己的专属worker，也可以用默认的default。但一旦将来有了自己的worker，就可以立刻监听到，就不再用default了
-//                KvClient.WatchIterator watchIterator = configCenter.watchPrefix(ConfigConstant.workersPath + Context.APP_NAME);
-//                while (watchIterator.hasNext()) {
-//                    synchronized (LOCK) {
-//                        WatchUpdate watchUpdate = watchIterator.next();
-//                        List<Event> eventList = watchUpdate.getEvents();
-//                        Event event = eventList.get(0);
-//                        KeyValue keyValue = event.getKv();
-//                        //value里放的是ip地址
-//                        String ipPort = keyValue.getValue().toStringUtf8();
-//                        if (Event.EventType.PUT.equals(event.getType())) {
-//                            JdLogger.info(getClass(), "worker created ：" + ipPort);
-//                            List<KeyValue> keyValues = configCenter.getPrefix(ConfigConstant.workersPath + Context.APP_NAME);
-//                            List<String> addresses = new ArrayList<>();
-//                            for (KeyValue one : keyValues) {
-//                                //value里放的是ip地址
-//                                addresses.add(one.getValue().toStringUtf8());
-//                            }
-//                            notifyWorkerChange(addresses);
-//                        } else if (Event.EventType.DELETE.equals(event.getType())) {
-//                            JdLogger.info(getClass(), "worker removed ：" + ipPort);
-//                            WorkerInfoHolder.dealChannelInactive(ipPort);
-//                        }
-//                    }
-//
-//                }
-//
-//            } catch (Exception e) {
-//                JdLogger.error(getClass(), "watch err");
-//            }
-//        });
-//
-//    }
 
 
     /**

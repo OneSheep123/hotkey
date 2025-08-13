@@ -127,8 +127,9 @@ public class JdEtcdClient implements IConfigCenter {
 
     @Override
     public void put(String key, String value, long leaseId) {
-        // 带租约的put操作：将key-value与指定的租约ID关联
-        // 当租约到期时，该key会自动从etcd中删除
+        // 将key-value与已存在的租约关联
+        // 注意：此方法不设置租约的TTL，租约的生存时间必须在其他地方预先设置
+        // 当关联的租约到期时，该key会自动从etcd中删除
         // 常用于实现临时配置或会话管理
         kvClient.put(ByteString.copyFromUtf8(key), ByteString.copyFromUtf8(value), leaseId).sync();
     }
@@ -153,7 +154,6 @@ public class JdEtcdClient implements IConfigCenter {
 
     @Override
     public long setLease(String key, long leaseId) {
-        // 为已存在的key设置租约
         // 如果key之前没有租约，现在会与指定租约关联
         // 如果key已有租约，会替换为新的租约
         kvClient.setLease(ByteString.copyFromUtf8(key), leaseId);
