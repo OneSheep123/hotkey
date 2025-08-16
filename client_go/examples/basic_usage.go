@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
@@ -13,64 +14,42 @@ func main() {
 	client, err := hotkey.NewClientBuilder().
 		SetAppName("example-app").
 		SetEtcdServer("http://127.0.0.1:2379").
-		SetPushPeriod(500).  // 推送间隔500ms
+		SetPushPeriod(500).   // 推送间隔500ms
 		SetCacheSize(200000). // 缓存容量20万
 		Build()
-	
+
 	if err != nil {
 		log.Fatal("Failed to create hotkey client:", err)
 	}
-	
+
 	// 启动客户端
 	if err := client.Start(); err != nil {
 		log.Fatal("Failed to start hotkey client:", err)
 	}
 	defer client.Stop()
-	
+
 	log.Println("HotKey client started successfully")
 
-	// 等待客户端就绪 - 使用简单的健康检查
-	log.Println("Waiting for client to be ready...")
-	if err := waitForReady(client, 15*time.Second); err != nil {
-		log.Fatal("Client failed to become ready:", err)
+	// 创建就绪通知器
+	notifier := NewClientReadyNotifier(client)
+
+	// 创建带超时的上下文
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// 开始监控
+	notifier.Start(ctx)
+
+	// 等待客户端就绪
+	if err := notifier.WaitReady(ctx); err != nil {
+		log.Fatal("❌ Client failed to become ready:", err)
 	}
-	log.Println("✅ Client is ready!")
 
 	// 使用示例
 	demonstrateUsage()
-	
+
 	// 保持程序运行
 	select {}
-}
-
-// waitForReady 等待客户端就绪 - 简单的健康检查实现
-func waitForReady(client *hotkey.Client, timeout time.Duration) error {
-	log.Printf("Checking client readiness (timeout: %v)...", timeout)
-
-	ticker := time.NewTicker(200 * time.Millisecond) // 每200ms检查一次
-	defer ticker.Stop()
-
-	timeoutChan := time.After(timeout)
-	checkCount := 0
-
-	for {
-		select {
-		case <-ticker.C:
-			checkCount++
-			if isClientHealthy(client) {
-				log.Printf("Client became ready after %d checks", checkCount)
-				return nil
-			}
-
-			// 每10次检查打印一次进度
-			if checkCount%10 == 0 {
-				log.Printf("Still waiting... (check #%d)", checkCount)
-			}
-
-		case <-timeoutChan:
-			return fmt.Errorf("timeout after %v (performed %d checks)", timeout, checkCount)
-		}
-	}
 }
 
 // isClientHealthy 检查客户端是否健康
@@ -125,9 +104,9 @@ func demonstrateUsage() {
 	log.Println("\n📋 Step 2: Setting values")
 	log.Printf("🔧 Force setting value for key: %s", key)
 	hotkey.ForceSet(key, map[string]interface{}{
-		"userId": "12345",
-		"name":   "John Doe",
-		"email":  "john@example.com",
+		"userId":    "12345",
+		"name":      "John Doe",
+		"email":     "john@example.com",
 		"timestamp": time.Now().Format("2006-01-02 15:04:05"),
 	})
 
