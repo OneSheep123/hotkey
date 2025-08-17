@@ -11,10 +11,10 @@ import (
 
 // WorkerRetryConnector Worker重连器，对应Java的WorkerRetryConnector
 type WorkerRetryConnector struct {
-	netClient     *NettyClient
-	workerHolder  *WorkerInfoHolder
-	stopChan      chan struct{}
-	retryTicker   *time.Ticker
+	netClient    *NettyClient
+	workerHolder *WorkerInfoHolder
+	stopChan     chan struct{}
+	retryTicker  *time.Ticker
 }
 
 // NewWorkerRetryConnector 创建Worker重连器
@@ -83,23 +83,15 @@ func (wcs *WorkerChangeSubscriber) HandleChannelInactive(event *ChannelInactiveE
 	wcs.workerHolder.DealChannelInactive(event.Address)
 }
 
-// 事件定义（这些应该在event包中，这里为了完整性重新定义）
-
-// WorkerInfoChangeEvent Worker信息变化事件
-type WorkerInfoChangeEvent struct {
-	Addresses []string
-}
-
-// ChannelInactiveEvent 连接断开事件
-type ChannelInactiveEvent struct {
-	Address string
-}
+// 使用event包中的事件类型
+type WorkerInfoChangeEvent = event.WorkerInfoChangeEvent
+type ChannelInactiveEvent = event.ChannelInactiveEvent
 
 // NetworkManager 网络管理器，整合所有网络相关组件
 type NetworkManager struct {
-	netClient       *NettyClient
-	workerHolder    *WorkerInfoHolder
-	retryConnector  *WorkerRetryConnector
+	netClient        *NettyClient
+	workerHolder     *WorkerInfoHolder
+	retryConnector   *WorkerRetryConnector
 	changeSubscriber *WorkerChangeSubscriber
 }
 

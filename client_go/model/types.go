@@ -100,17 +100,19 @@ type KeyCountModel struct {
 
 // HotKeyMsg 网络通信消息，对应Java的HotKeyMsg
 type HotKeyMsg struct {
-	MagicNumber     int              `json:"magicNumber"`
-	AppName         string           `json:"appName"`
-	MessageType     MessageType      `json:"messageType"`
-	Body            string           `json:"body"`
-	HotKeyModels    []*HotKeyModel   `json:"hotKeyModels"`
-	KeyCountModels  []*KeyCountModel `json:"keyCountModels"`
+	MagicNumber    int              `json:"magicNumber"`
+	AppName        string           `json:"appName"`
+	MessageType    MessageType      `json:"messageType"`
+	Body           string           `json:"body"`
+	HotKeyModels   []*HotKeyModel   `json:"hotKeyModels"`
+	KeyCountModels []*KeyCountModel `json:"keyCountModels"`
 }
 
 // NewHotKeyMsg 创建新的HotKeyMsg
+// 注意：Java版本不设置MagicNumber（默认为0），为了兼容性，Go版本也不设置
 func NewHotKeyMsg(msgType MessageType, appName string) *HotKeyMsg {
 	return &HotKeyMsg{
+		MagicNumber: 0, // 与Java版本保持一致，不设置MagicNumber
 		MessageType: msgType,
 		AppName:     appName,
 	}

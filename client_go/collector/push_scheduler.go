@@ -220,7 +220,7 @@ type CollectorManager struct {
 }
 
 // NewCollectorManager 创建收集器管理器
-func NewCollectorManager(ruleHolder RuleHolder, keyPusher KeyPusher, configCenter ConfigCenter, appName string) *CollectorManager {
+func NewCollectorManager(ruleHolder CollectorRuleHolder, keyPusher KeyPusher, configCenter ConfigCenter, appName string) *CollectorManager {
 	handlerFactory := NewKeyHandlerFactory(ruleHolder, keyPusher)
 	scheduler := NewPushSchedulerStarter(handlerFactory, appName)
 	hotKeyPusher := NewHotKeyPusher(handlerFactory, configCenter, appName)

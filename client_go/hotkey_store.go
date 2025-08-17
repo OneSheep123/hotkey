@@ -19,7 +19,7 @@ type HotKeyStore struct {
 }
 
 // NewHotKeyStore 创建热key存储
-func NewHotKeyStore(cacheFactory *cache.CacheFactory, ruleHolder *rule.KeyRuleHolder, 
+func NewHotKeyStore(cacheFactory *cache.CacheFactory, ruleHolder *rule.KeyRuleHolder,
 	collectorManager *collector.CollectorManager, hotKeyPusher *collector.HotKeyPusher) *HotKeyStore {
 	return &HotKeyStore{
 		cacheFactory:     cacheFactory,
@@ -33,17 +33,22 @@ func NewHotKeyStore(cacheFactory *cache.CacheFactory, ruleHolder *rule.KeyRuleHo
 func (hks *HotKeyStore) IsHotKey(key string) bool {
 	// 如果不在规则内，直接返回false
 	if !hks.inRule(key) {
+		log.Printf("DEBUG: Key '%s' is not in rule", key)
 		return false
 	}
 
 	isHot := hks.isHot(key)
+	log.Printf("DEBUG: Key '%s' isHot=%t", key, isHot)
+
 	if !isHot {
 		// 不是热key，上报一次
+		log.Printf("DEBUG: Pushing key '%s' to server", key)
 		hks.hotKeyPusher.PushWithDefaults(key)
 	} else {
 		// 是热key，检查是否临近过期
 		valueModel := hks.getValueSimple(key)
 		if hks.isNearExpire(valueModel) {
+			log.Printf("DEBUG: Key '%s' is near expire, pushing to server", key)
 			hks.hotKeyPusher.PushWithDefaults(key)
 		}
 	}
@@ -282,15 +287,18 @@ func NewNewKeyListener(cacheFactory *cache.CacheFactory) *NewKeyListener {
 // NewKey 处理新key，对应Java的DefaultNewKeyListener.newKey
 func (nkl *NewKeyListener) NewKey(hotKeyModel *model.HotKeyModel) {
 	now := time.Now().UnixMilli()
-	
+
+	log.Printf("DEBUG: Received hot key from server: %s, Remove=%t", hotKeyModel.Key, hotKeyModel.Remove)
+
 	// 如果key到达时已经过去1秒了，记录一下
 	if hotKeyModel.CreateTime != 0 && abs(now-hotKeyModel.CreateTime) > 1000 {
-		log.Printf("Warning: the key comes too late: %s now %d keyCreateAt %d", 
+		log.Printf("Warning: the key comes too late: %s now %d keyCreateAt %d",
 			hotKeyModel.Key, now, hotKeyModel.CreateTime)
 	}
 
 	if hotKeyModel.Remove {
 		// 如果是删除事件，就直接删除
+		log.Printf("DEBUG: Removing hot key: %s", hotKeyModel.Key)
 		nkl.deleteKey(hotKeyModel.Key)
 		return
 	}
@@ -300,6 +308,7 @@ func (nkl *NewKeyListener) NewKey(hotKeyModel *model.HotKeyModel) {
 		log.Printf("Warning: receive repeat hot key: %s at %d", hotKeyModel.Key, now)
 	}
 
+	log.Printf("DEBUG: Adding hot key to local cache: %s", hotKeyModel.Key)
 	nkl.addKey(hotKeyModel.Key)
 }
 
@@ -310,7 +319,7 @@ func (nkl *NewKeyListener) addKey(key string) {
 	if globalHotKeyStore != nil {
 		duration = globalHotKeyStore.ruleHolder.Duration(key)
 	}
-	
+
 	if duration <= 0 {
 		// 不符合任何规则
 		nkl.deleteKey(key)

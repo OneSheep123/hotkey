@@ -102,11 +102,11 @@ type TurnCountCollector struct {
 	hitMap0    sync.Map
 	hitMap1    sync.Map
 	atomicLong int64
-	ruleHolder RuleHolder
+	ruleHolder CollectorRuleHolder
 }
 
-// RuleHolder 规则持有者接口
-type RuleHolder interface {
+// CollectorRuleHolder 收集器规则持有者接口，专门用于收集器
+type CollectorRuleHolder interface {
 	Rule(key string) string
 }
 
@@ -117,7 +117,7 @@ type HitCount struct {
 }
 
 // NewTurnCountCollector 创建轮转计数收集器
-func NewTurnCountCollector(ruleHolder RuleHolder) *TurnCountCollector {
+func NewTurnCountCollector(ruleHolder CollectorRuleHolder) *TurnCountCollector {
 	return &TurnCountCollector{
 		ruleHolder: ruleHolder,
 	}
@@ -238,7 +238,7 @@ type KeyPusher interface {
 }
 
 // NewKeyHandlerFactory 创建Key处理器工厂
-func NewKeyHandlerFactory(ruleHolder RuleHolder, keyPusher KeyPusher) *KeyHandlerFactory {
+func NewKeyHandlerFactory(ruleHolder CollectorRuleHolder, keyPusher KeyPusher) *KeyHandlerFactory {
 	return &KeyHandlerFactory{
 		keyCollector:   NewTurnKeyCollector(),
 		countCollector: NewTurnCountCollector(ruleHolder),

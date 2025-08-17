@@ -66,7 +66,7 @@ func (rc *RistrettoCache) Get(key string) interface{} {
 // Set 设置缓存值
 func (rc *RistrettoCache) Set(key string, value interface{}) {
 	var ttl time.Duration
-	
+
 	// 如果是ValueModel，使用其内部的duration
 	if vm, ok := value.(*model.ValueModel); ok {
 		ttl = time.Duration(vm.Duration) * time.Millisecond
@@ -144,16 +144,16 @@ func (dc *DefaultCache) Clear() {
 // CacheFactory 缓存工厂，对应Java的CacheFactory
 type CacheFactory struct {
 	defaultCache LocalCache
-	ruleHolder   RuleHolder
+	ruleHolder   CacheRuleHolder
 }
 
-// RuleHolder 规则持有者接口
-type RuleHolder interface {
+// CacheRuleHolder 缓存规则持有者接口，专门用于缓存工厂
+type CacheRuleHolder interface {
 	FindByKey(key string) LocalCache
 }
 
 // NewCacheFactory 创建缓存工厂
-func NewCacheFactory(ruleHolder RuleHolder) *CacheFactory {
+func NewCacheFactory(ruleHolder CacheRuleHolder) *CacheFactory {
 	return &CacheFactory{
 		defaultCache: NewDefaultCache(),
 		ruleHolder:   ruleHolder,

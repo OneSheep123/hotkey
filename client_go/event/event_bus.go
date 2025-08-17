@@ -40,11 +40,12 @@ func (eb *EventBus) Subscribe(subscriber interface{}) {
 				eventType = eventType.Elem()
 			}
 
-			// 创建处理器函数
+			// 创建处理器函数，捕获当前的方法索引
+			methodIndex := i // 重要：捕获当前循环变量的值
 			handler := func(event interface{}) {
 				eventValue := reflect.ValueOf(event)
 				if eventValue.Type().AssignableTo(methodType.In(1)) {
-					subscriberValue.Method(i).Call([]reflect.Value{eventValue})
+					subscriberValue.Method(methodIndex).Call([]reflect.Value{eventValue})
 				}
 			}
 
@@ -191,16 +192,16 @@ func (s *DefaultReceiveNewKeySubscriber) HandleReceiveNewKey(event *ReceiveNewKe
 
 // DefaultKeyRuleSubscriber 默认规则变化处理器
 type DefaultKeyRuleSubscriber struct {
-	ruleHolder RuleHolder
+	ruleHolder EventRuleHolder
 }
 
-// RuleHolder 规则持有者接口
-type RuleHolder interface {
+// EventRuleHolder 事件规则持有者接口，专门用于事件处理
+type EventRuleHolder interface {
 	PutRules(rules []*model.KeyRule)
 }
 
 // NewDefaultKeyRuleSubscriber 创建默认规则变化处理器
-func NewDefaultKeyRuleSubscriber(ruleHolder RuleHolder) *DefaultKeyRuleSubscriber {
+func NewDefaultKeyRuleSubscriber(ruleHolder EventRuleHolder) *DefaultKeyRuleSubscriber {
 	return &DefaultKeyRuleSubscriber{
 		ruleHolder: ruleHolder,
 	}

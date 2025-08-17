@@ -52,12 +52,12 @@ func (c *Connection) Close() error {
 
 // NettyClient 网络客户端，对应Java的NettyClient
 type NettyClient struct {
-	connections  map[string]*Connection
-	serializer   *serializer.ProtostuffSerializer
-	eventBus     *event.EventBus
-	appName      string
-	mutex        sync.RWMutex
-	stopChan     chan struct{}
+	connections     map[string]*Connection
+	serializer      *serializer.ProtostuffSerializer
+	eventBus        *event.EventBus
+	appName         string
+	mutex           sync.RWMutex
+	stopChan        chan struct{}
 	heartbeatTicker *time.Ticker
 }
 
@@ -128,6 +128,12 @@ func (nc *NettyClient) Connect(addresses []string) bool {
 			continue
 		}
 
+		// 设置TCP连接选项，与Java版本保持一致
+		if tcpConn, ok := conn.(*net.TCPConn); ok {
+			tcpConn.SetKeepAlive(true)
+			tcpConn.SetNoDelay(true)
+		}
+
 		connection := &Connection{
 			Address: address,
 			Conn:    conn,
@@ -136,11 +142,8 @@ func (nc *NettyClient) Connect(addresses []string) bool {
 
 		nc.putConnection(address, connection)
 
-		// 启动连接处理
+		// 启动连接处理，AppName将在连接处理器中发送
 		go nc.handleConnection(connection)
-
-		// 发送应用名称
-		nc.sendAppName(connection)
 	}
 
 	return allSuccess
@@ -176,13 +179,27 @@ func (nc *NettyClient) putConnection(address string, connection *Connection) {
 
 // handleConnection 处理连接，对应Java的NettyClientHandler
 func (nc *NettyClient) handleConnection(connection *Connection) {
+	hotlog.Info(nc, fmt.Sprintf("Starting connection handler for %s", connection.Address))
+
 	defer func() {
+		hotlog.Info(nc, fmt.Sprintf("Connection handler for %s is closing", connection.Address))
 		connection.Close()
 		// 发布连接断开事件
 		nc.eventBus.Publish(&event.ChannelInactiveEvent{
 			Address: connection.Address,
 		})
 	}()
+
+	// 等待连接完全建立，然后发送AppName，对应Java的channelActive
+	time.Sleep(100 * time.Millisecond) // 确保连接完全建立
+	hotlog.Debug(nc, fmt.Sprintf("Sending app name to %s", connection.Address))
+	err := nc.sendAppName(connection)
+	if err != nil {
+		hotlog.Error(nc, fmt.Sprintf("Failed to send app name to %s: %v", connection.Address, err))
+		return
+	} else {
+		hotlog.Debug(nc, fmt.Sprintf("Successfully sent app name to %s", connection.Address))
+	}
 
 	buffer := &bytes.Buffer{}
 
@@ -191,21 +208,28 @@ func (nc *NettyClient) handleConnection(connection *Connection) {
 		case <-nc.stopChan:
 			return
 		default:
-			// 设置读取超时
-			connection.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+			// 设置读取超时为1秒，更频繁地检查停止信号
+			connection.Conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 
 			// 读取数据
-			data := make([]byte, 1024)
+			data := make([]byte, 4096) // 增加缓冲区大小
 			n, err := connection.Conn.Read(data)
 			if err != nil {
+				// 检查是否是超时错误
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					// 超时不是致命错误，继续循环
+					continue
+				}
 				hotlog.Error(nc, fmt.Sprintf("Connection read error from %s: %v", connection.Address, err))
 				return
 			}
 
-			buffer.Write(data[:n])
-
-			// 处理完整的消息
-			nc.processMessages(buffer, connection)
+			if n > 0 {
+				hotlog.Debug(nc, fmt.Sprintf("Received %d bytes from %s", n, connection.Address))
+				buffer.Write(data[:n])
+				// 处理完整的消息
+				nc.processMessages(buffer, connection)
+			}
 		}
 	}
 }
@@ -233,9 +257,11 @@ func (nc *NettyClient) processMessages(buffer *bytes.Buffer, connection *Connect
 
 // handleMessage 处理单个消息
 func (nc *NettyClient) handleMessage(data []byte, connection *Connection) {
+	hotlog.Debug(nc, fmt.Sprintf("Received message from %s, data length: %d", connection.Address, len(data)))
+
 	msg, err := nc.serializer.Deserialize(data, reflect.TypeOf(&model.HotKeyMsg{}))
 	if err != nil {
-		hotlog.Error(nc, fmt.Sprintf("Failed to deserialize message from %s: %v", connection.Address, err))
+		hotlog.Error(nc, fmt.Sprintf("Failed to deserialize message from %s: %v, data: %s", connection.Address, err, string(data)))
 		return
 	}
 
@@ -245,17 +271,18 @@ func (nc *NettyClient) handleMessage(data []byte, connection *Connection) {
 		return
 	}
 
+	hotlog.Debug(nc, fmt.Sprintf("Received message type %v from %s", hotKeyMsg.MessageType, connection.Address))
+
 	switch hotKeyMsg.MessageType {
 	case model.Pong:
-		if hotlog.IsDebugEnabled() {
-			hotlog.Debug(nc, fmt.Sprintf("Received heartbeat pong from %s", connection.Address))
-		}
+		hotlog.Debug(nc, fmt.Sprintf("Received heartbeat pong from %s", connection.Address))
 
 	case model.ResponseNewKey:
 		hotlog.Info(nc, fmt.Sprintf("Received new key response from %s with %d keys",
 			connection.Address, len(hotKeyMsg.HotKeyModels)))
 		if len(hotKeyMsg.HotKeyModels) > 0 {
 			for _, hotKeyModel := range hotKeyMsg.HotKeyModels {
+				hotlog.Info(nc, fmt.Sprintf("Processing hot key: %s, Remove: %t", hotKeyModel.Key, hotKeyModel.Remove))
 				nc.eventBus.Publish(&event.ReceiveNewKeyEvent{
 					Model: hotKeyModel,
 				})
@@ -268,9 +295,9 @@ func (nc *NettyClient) handleMessage(data []byte, connection *Connection) {
 }
 
 // sendAppName 发送应用名称
-func (nc *NettyClient) sendAppName(connection *Connection) {
+func (nc *NettyClient) sendAppName(connection *Connection) error {
 	msg := model.NewHotKeyMsg(model.AppName, nc.appName)
-	nc.sendMessage(connection, msg)
+	return nc.sendMessage(connection, msg)
 }
 
 // sendMessage 发送消息
@@ -281,7 +308,17 @@ func (nc *NettyClient) sendMessage(connection *Connection, msg *model.HotKeyMsg)
 	}
 
 	_, err = connection.Conn.Write(data)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// 确保数据立即发送，对应Java的writeAndFlush
+	if tcpConn, ok := connection.Conn.(*net.TCPConn); ok {
+		// TCP连接会自动刷新，但我们可以设置NoDelay确保立即发送
+		tcpConn.SetNoDelay(true)
+	}
+
+	return nil
 }
 
 // startHeartbeat 启动心跳

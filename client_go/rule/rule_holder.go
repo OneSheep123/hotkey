@@ -152,6 +152,10 @@ func (krh *KeyRuleHolder) findRule(key string) *model.KeyRule {
 func (krh *KeyRuleHolder) HandleKeyRuleInfoChange(event *event.KeyRuleInfoChangeEvent) {
 	log.Printf("New rules info is: %v", event.KeyRules)
 	if event.KeyRules != nil {
+		for i, rule := range event.KeyRules {
+			log.Printf("Rule %d: Key=%s, Prefix=%t, Interval=%d, Threshold=%d, Duration=%d",
+				i, rule.Key, rule.Prefix, rule.Interval, rule.Threshold, rule.Duration)
+		}
 		krh.PutRules(event.KeyRules)
 	}
 }

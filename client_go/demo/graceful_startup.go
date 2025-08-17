@@ -6,98 +6,21 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"sync"
 	"time"
+
+	hotlog "github.com/jd/platform/hotkey/client-go/log"
+	"github.com/jd/platform/hotkey/client-go/startup"
 
 	hotkey "github.com/jd/platform/hotkey/client-go"
 )
 
-// ClientReadyNotifier 客户端就绪通知器
-type ClientReadyNotifier struct {
-	client     *hotkey.Client
-	readyChan  chan struct{}
-	once       sync.Once
-	isReady    bool
-	mutex      sync.RWMutex
-}
-
-// NewClientReadyNotifier 创建客户端就绪通知器
-func NewClientReadyNotifier(client *hotkey.Client) *ClientReadyNotifier {
-	return &ClientReadyNotifier{
-		client:    client,
-		readyChan: make(chan struct{}),
-	}
-}
-
-// Start 开始监控客户端状态
-func (crn *ClientReadyNotifier) Start(ctx context.Context) {
-	go crn.monitor(ctx)
-}
-
-// WaitReady 等待客户端就绪
-func (crn *ClientReadyNotifier) WaitReady(ctx context.Context) error {
-	select {
-	case <-crn.readyChan:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-// IsReady 检查客户端是否就绪
-func (crn *ClientReadyNotifier) IsReady() bool {
-	crn.mutex.RLock()
-	defer crn.mutex.RUnlock()
-	return crn.isReady
-}
-
-// monitor 监控客户端状态
-func (crn *ClientReadyNotifier) monitor(ctx context.Context) {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if crn.checkClientReady() {
-				crn.once.Do(func() {
-					crn.mutex.Lock()
-					crn.isReady = true
-					crn.mutex.Unlock()
-					close(crn.readyChan)
-					log.Println("✅ Client is ready!")
-				})
-				return
-			}
-		}
-	}
-}
-
-// checkClientReady 检查客户端是否准备就绪
-func (crn *ClientReadyNotifier) checkClientReady() bool {
-	if !crn.client.IsStarted() {
-		return false
-	}
-
-	stats := crn.client.GetStats()
-	if stats == nil {
-		return false
-	}
-
-	// 检查是否有活跃连接
-	if activeConnections, ok := stats["activeConnections"].(int); ok && activeConnections > 0 {
-		return true
-	}
-
-	return false
-}
-
 func main() {
+	// 启用DEBUG日志级别
+	hotlog.SetLevel(hotlog.DEBUG)
+
 	// 创建客户端
 	client, err := hotkey.NewClientBuilder().
-		SetAppName("graceful-sample").
+		SetAppName("sample").
 		SetEtcdServer("http://127.0.0.1:12379").
 		SetPushPeriod(500).
 		SetCacheSize(200000).
@@ -117,8 +40,8 @@ func main() {
 	log.Println("🚀 HotKey client started, waiting for ready...")
 
 	// 创建就绪通知器
-	notifier := NewClientReadyNotifier(client)
-	
+	notifier := startup.NewClientReadyNotifier(client)
+
 	// 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -129,17 +52,18 @@ func main() {
 	// 等待客户端就绪
 	if err := notifier.WaitReady(ctx); err != nil {
 		log.Fatal("❌ Client failed to become ready:", err)
+		return
 	}
 
 	// 启动HTTP服务器
 	startGracefulHTTPServer(client, notifier)
 }
 
-func startGracefulHTTPServer(client *hotkey.Client, notifier *ClientReadyNotifier) {
+func startGracefulHTTPServer(client *hotkey.Client, notifier *startup.ClientReadyNotifier) {
 	// 健康检查接口 - 更详细的状态
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		
+
 		health := map[string]interface{}{
 			"status":    "unknown",
 			"timestamp": time.Now().Format(time.RFC3339),
@@ -185,8 +109,8 @@ func startGracefulHTTPServer(client *hotkey.Client, notifier *ClientReadyNotifie
 		}
 
 		result := map[string]interface{}{
-			"key":   key,
-			"isHot": hotkey.IsHotKey(key),
+			"key":       key,
+			"isHot":     hotkey.IsHotKey(key),
 			"timestamp": time.Now().Format(time.RFC3339),
 		}
 
@@ -242,7 +166,7 @@ func startGracefulHTTPServer(client *hotkey.Client, notifier *ClientReadyNotifie
 		json.NewEncoder(w).Encode(stats)
 	})
 
-	log.Println("🌐 HTTP server starting on :8080")
+	log.Println("🌐 HTTP server starting on :9090")
 	log.Println("📋 Available endpoints:")
 	log.Println("  GET  /health              - Detailed health check")
 	log.Println("  GET  /ready               - Simple readiness check")
@@ -251,12 +175,12 @@ func startGracefulHTTPServer(client *hotkey.Client, notifier *ClientReadyNotifie
 	log.Println("  GET  /stats               - Get client statistics")
 
 	// 启动模拟流量
-	go simulateGracefulTraffic(notifier)
+	//go simulateGracefulTraffic(notifier)
 
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe(":9090", nil))
 }
 
-func simulateGracefulTraffic(notifier *ClientReadyNotifier) {
+func simulateGracefulTraffic(notifier *startup.ClientReadyNotifier) {
 	// 等待服务就绪
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -282,7 +206,7 @@ func simulateGracefulTraffic(notifier *ClientReadyNotifier) {
 
 		key := keys[index%len(keys)]
 		isHot := hotkey.IsHotKey(key)
-		
+
 		log.Printf("🔍 Simulated check: %s -> isHot: %v", key, isHot)
 
 		// 模拟设置一些数据
