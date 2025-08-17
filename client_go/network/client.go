@@ -203,32 +203,48 @@ func (nc *NettyClient) handleConnection(connection *Connection) {
 
 	buffer := &bytes.Buffer{}
 
+	// 使用专门的goroutine进行阻塞读取，避免select default的问题
+	readChan := make(chan []byte, 10)
+	errorChan := make(chan error, 1)
+
+	// 启动读取goroutine
+	go func() {
+		defer close(readChan)
+		defer close(errorChan)
+
+		for {
+			data := make([]byte, 4096)
+			n, err := connection.Conn.Read(data)
+			if err != nil {
+				errorChan <- err
+				return
+			}
+			if n > 0 {
+				// 复制数据到新的slice，避免数据竞争
+				readData := make([]byte, n)
+				copy(readData, data[:n])
+				readChan <- readData
+			}
+		}
+	}()
+
+	// 主循环处理读取的数据和停止信号
 	for {
 		select {
 		case <-nc.stopChan:
+			connection.Close() // 关闭连接以停止读取goroutine
 			return
-		default:
-			// 设置读取超时为1秒，更频繁地检查停止信号
-			connection.Conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-
-			// 读取数据
-			data := make([]byte, 4096) // 增加缓冲区大小
-			n, err := connection.Conn.Read(data)
-			if err != nil {
-				// 检查是否是超时错误
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-					// 超时不是致命错误，继续循环
-					continue
-				}
-				hotlog.Error(nc, fmt.Sprintf("Connection read error from %s: %v", connection.Address, err))
-				return
-			}
-
-			if n > 0 {
-				hotlog.Debug(nc, fmt.Sprintf("Received %d bytes from %s", n, connection.Address))
-				buffer.Write(data[:n])
+		case data := <-readChan:
+			if data != nil {
+				hotlog.Debug(nc, fmt.Sprintf("Received %d bytes from %s", len(data), connection.Address))
+				buffer.Write(data)
 				// 处理完整的消息
 				nc.processMessages(buffer, connection)
+			}
+		case err := <-errorChan:
+			if err != nil {
+				hotlog.Error(nc, fmt.Sprintf("Connection read error from %s: %v", connection.Address, err))
+				return
 			}
 		}
 	}
@@ -258,10 +274,13 @@ func (nc *NettyClient) processMessages(buffer *bytes.Buffer, connection *Connect
 // handleMessage 处理单个消息
 func (nc *NettyClient) handleMessage(data []byte, connection *Connection) {
 	hotlog.Debug(nc, fmt.Sprintf("Received message from %s, data length: %d", connection.Address, len(data)))
+	hotlog.Debug(nc, fmt.Sprintf("Raw message data (hex): %x", data))
 
 	msg, err := nc.serializer.Deserialize(data, reflect.TypeOf(&model.HotKeyMsg{}))
 	if err != nil {
-		hotlog.Error(nc, fmt.Sprintf("Failed to deserialize message from %s: %v, data: %s", connection.Address, err, string(data)))
+		hotlog.Error(nc, fmt.Sprintf("Failed to deserialize message from %s: %v", connection.Address, err))
+		hotlog.Error(nc, fmt.Sprintf("Raw message data (hex): %x", data))
+		hotlog.Error(nc, fmt.Sprintf("Raw message data (string): %s", string(data)))
 		return
 	}
 
@@ -348,13 +367,18 @@ func (nc *NettyClient) sendHeartbeat() {
 	}
 	nc.mutex.RUnlock()
 
+	hotlog.Debug(nc, fmt.Sprintf("Sending heartbeat to %d active connections", len(connections)))
+
 	pingMsg := model.NewHotKeyMsg(model.Ping, nc.appName)
 
 	for _, conn := range connections {
+		hotlog.Debug(nc, fmt.Sprintf("Sending PING to %s", conn.Address))
 		err := nc.sendMessage(conn, pingMsg)
 		if err != nil {
-			hotlog.Errorf(nc, "Failed to send heartbeat to %s: %v", conn.Address, err)
+			hotlog.Error(nc, fmt.Sprintf("Failed to send heartbeat to %s: %v", conn.Address, err))
 			conn.SetActive(false)
+		} else {
+			hotlog.Debug(nc, fmt.Sprintf("Successfully sent PING to %s", conn.Address))
 		}
 	}
 }

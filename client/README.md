@@ -1,271 +1,380 @@
-# HotKey Client 模块
+# HotKey Client 客户端
 
-## 概述
+## 项目概述
 
-HotKey Client 是一个高性能的热key探测和本地缓存客户端，能够自动识别应用中的热点数据并将其缓存在本地内存中，显著提升数据访问性能。
+HotKey Client 是京东平台热点数据探测系统的客户端组件，用于在应用程序中集成热点Key的探测、上报和本地缓存功能。该客户端能够自动识别访问频率较高的Key，并将其上报到Worker节点进行集群级别的热点分析，同时提供高性能的本地缓存机制来优化热点数据的访问性能。
 
-## 核心功能
+## 主要功能
 
-### 1. 热Key自动探测
-- **智能收集**: 自动收集应用中的key访问信息
-- **批量推送**: 定期将key信息批量推送到worker节点进行分析
-- **规则过滤**: 只上报符合配置规则的key，避免无效传输
-- **频率控制**: 可配置推送间隔，平衡探测及时性和资源消耗
+### 🔥 热点Key探测
+- **自动探测**: 根据配置的规则自动识别热点Key
+- **手动上报**: 支持业务代码主动上报可能的热点Key
+- **实时统计**: 实时统计Key的访问频次和热度
 
-### 2. 本地缓存管理
-- **高性能缓存**: 基于Caffeine实现的高性能本地缓存
-- **热Key存储**: 自动将探测到的热key存储在本地内存中
-- **过期管理**: 支持TTL过期时间，自动清理过期数据
-- **容量控制**: 可配置缓存最大容量，防止内存溢出
+### 📊 本地缓存
+- **Caffeine缓存**: 基于高性能的Caffeine缓存库
+- **智能缓存**: 只缓存被识别为热点的Key
+- **过期管理**: 支持TTL过期和容量限制
 
-### 3. 配置中心集成
-- **Etcd支持**: 与etcd配置中心无缝集成
-- **动态配置**: 实时监听配置变化，支持热更新
-- **多节点支持**: 支持连接多个etcd节点，实现高可用
-- **规则同步**: 自动同步key探测规则和worker节点信息
+### 🌐 集群通信
+- **Netty通信**: 使用Netty与Worker节点进行高效通信
+- **Etcd配置**: 通过Etcd进行配置管理和服务发现
+- **事件驱动**: 基于EventBus的事件驱动架构
 
-### 4. 网络通信
-- **Netty客户端**: 基于Netty的高性能网络通信
-- **连接管理**: 自动管理worker节点的连接状态
-- **负载均衡**: 通过hash算法智能分发key到不同worker
-- **断线重连**: 自动检测连接异常并尝试重连
+### 📋 规则管理
+- **动态规则**: 支持运行时动态更新探测规则
+- **前缀匹配**: 支持Key前缀匹配和通配符
+- **分级缓存**: 不同规则对应不同的缓存时长
 
-### 5. 事件驱动架构
-- **事件总线**: 基于EventBus的事件驱动机制
-- **异步处理**: 支持异步事件处理，提升系统响应性
-- **事件订阅**: 支持多种事件类型的订阅和处理
-- **实时响应**: 能够实时响应配置和状态变化
-- **解耦合设计**: 通过事件总线解耦各个组件，便于维护和扩展
+## 技术架构
 
-## 快速开始
+### 核心技术栈
+- **Java 8**: 基础运行环境
+- **Netty 4.1.42**: 网络通信框架
+- **Caffeine 2.8.0**: 高性能本地缓存
+- **Etcd**: 配置中心和服务发现
+- **Guava EventBus**: 事件总线
+- **FastJSON**: JSON序列化
+- **Protostuff**: 高效序列化协议
 
-### 1. 添加依赖
+### 架构设计
 
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    HotKey Client                            │
+├─────────────────────────────────────────────────────────────┤
+│  Application Layer                                          │
+│  ┌─────────────────┐  ┌─────────────────┐                  │
+│  │   HotKeyPusher  │  │  JdHotKeyStore  │                  │
+│  │   (API入口)      │  │   (缓存操作)     │                  │
+│  └─────────────────┘  └─────────────────┘                  │
+├─────────────────────────────────────────────────────────────┤
+│  Core Layer                                                 │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐ │
+│  │   Key Handler   │  │   Rule Engine   │  │ Event Bus   │ │
+│  │   (Key处理)      │  │   (规则引擎)     │  │ (事件总线)   │ │
+│  └─────────────────┘  └─────────────────┘  └─────────────┘ │
+├─────────────────────────────────────────────────────────────┤
+│  Infrastructure Layer                                       │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐ │
+│  │  Netty Client   │  │  Etcd Client    │  │ Local Cache │ │
+│  │  (网络通信)      │  │  (配置管理)      │  │ (本地缓存)   │ │
+│  └─────────────────┘  └─────────────────┘  └─────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## 核心组件介绍
+
+### 1. ClientStarter (客户端启动器)
+- **职责**: 客户端的主入口，负责初始化和启动各个组件
+- **配置**: 支持Builder模式进行灵活配置
+- **功能**: 
+  - 设置应用名称和Etcd地址
+  - 配置推送周期和缓存大小
+  - 启动监听管道和事件总线
+
+### 2. HotKeyPusher (热点Key推送器)
+- **职责**: 提供热点Key上报的API接口
+- **功能**:
+  - `push(key)`: 上报普通Key
+  - `push(key, keyType, count)`: 上报指定类型和次数的Key
+  - `remove(key)`: 删除热点Key
+- **特性**: 支持批量聚合推送，减少网络开销
+
+### 3. JdHotKeyStore (热点Key存储)
+- **职责**: 热点Key的本地缓存管理和智能判断
+- **核心方法**:
+  - `isHotKey(key)`: 判断是否为热点Key
+  - `get(key)`: 获取缓存值
+  - `smartSet(key, value)`: 智能设置缓存
+  - `getValue(key)`: 获取值并自动上报
+- **特性**: 临近过期自动续期，智能缓存管理
+
+### 4. KeyRuleHolder (规则管理器)
+- **职责**: 管理热点Key的探测规则
+- **规则类型**:
+  - 精确匹配: `user:123`
+  - 前缀匹配: `user:*`
+  - 通配符: `*`
+- **功能**: 动态规则更新，多级匹配策略
+
+### 5. NettyClient (网络客户端)
+- **职责**: 与Worker节点的网络通信
+- **特性**:
+  - 连接池管理
+  - 心跳保活
+  - 自动重连
+  - 消息编解码
+
+### 6. EtcdStarter (Etcd启动器)
+- **职责**: Etcd配置管理和监听
+- **功能**:
+  - Worker节点发现
+  - 规则配置监听
+  - 热点Key事件监听
+  - 配置变更通知
+
+## 使用方法
+
+### 1. 基本配置
+
+```java
+// 创建客户端实例
+ClientStarter client = new ClientStarter.Builder()
+    .setAppName("your-app-name")           // 设置应用名称
+    .setEtcdServer("127.0.0.1:2379")      // 设置Etcd地址
+    .setPushPeriod(500L)                   // 设置推送周期(毫秒)
+    .setCaffeineSize(200000)               // 设置缓存大小
+    .build();
+
+// 启动客户端
+client.startPipeline();
+```
+
+### 2. 热点Key操作
+
+```java
+// 上报热点Key
+HotKeyPusher.push("user:12345");
+HotKeyPusher.push("product:67890", KeyType.REDIS_KEY, 10);
+
+// 判断是否为热点Key
+boolean isHot = JdHotKeyStore.isHotKey("user:12345");
+
+// 获取热点Key的值
+Object value = JdHotKeyStore.get("user:12345");
+
+// 智能设置缓存(仅对热点Key生效)
+JdHotKeyStore.smartSet("user:12345", userData);
+
+// 强制设置缓存
+JdHotKeyStore.forceSet("user:12345", userData);
+
+// 删除热点Key
+JdHotKeyStore.remove("user:12345");
+```
+
+### 3. 规则配置示例
+
+在Etcd中配置探测规则:
+```json
+[
+  {
+    "key": "user:*",
+    "duration": 300,
+    "prefix": true
+  },
+  {
+    "key": "product:hot",
+    "duration": 600,
+    "prefix": false
+  },
+  {
+    "key": "*",
+    "duration": 120,
+    "prefix": false
+  }
+]
+```
+
+## API 接口文档
+
+### HotKeyPusher API
+
+| 方法 | 参数 | 说明 |
+|------|------|------|
+| `push(String key)` | key: 要上报的Key | 上报普通Key，默认Redis类型，计数1 |
+| `push(String key, KeyType keyType)` | key: Key名称<br>keyType: Key类型 | 上报指定类型的Key |
+| `push(String key, KeyType keyType, int count)` | key: Key名称<br>keyType: Key类型<br>count: 访问次数 | 上报指定类型和次数的Key |
+| `remove(String key)` | key: 要删除的Key | 删除热点Key |
+
+### JdHotKeyStore API
+
+| 方法 | 参数 | 返回值 | 说明 |
+|------|------|--------|------|
+| `isHotKey(String key)` | key: Key名称 | boolean | 判断是否为热点Key |
+| `get(String key)` | key: Key名称 | Object | 获取缓存值 |
+| `getValue(String key)` | key: Key名称 | Object | 获取值并自动上报 |
+| `smartSet(String key, Object value)` | key: Key名称<br>value: 缓存值 | void | 智能设置缓存 |
+| `forceSet(String key, Object value)` | key: Key名称<br>value: 缓存值 | void | 强制设置缓存 |
+| `remove(String key)` | key: Key名称 | void | 删除缓存并通知集群 |
+
+## 依赖项说明
+
+### 核心依赖
+- `common`: 公共组件模块，包含通信协议和工具类
+
+### 第三方依赖
+- `netty-all 4.1.42.Final`: 网络通信框架
+- `caffeine 2.8.0`: 高性能本地缓存
+- `etcd-java 0.0.16`: Etcd客户端
+- `fastjson 1.2.83`: JSON序列化
+- `hutool-all 5.1.0`: Java工具库
+- `protostuff 1.7.4`: 序列化框架
+- `snappy-java 1.1.7.3`: 压缩库
+
+## 配置说明
+
+### 客户端配置参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `appName` | String | 必填 | 应用名称，用于隔离不同应用的配置 |
+| `etcdServer` | String | 必填 | Etcd服务器地址，格式: host:port |
+| `pushPeriod` | Long | 500 | Key推送周期，单位毫秒 |
+| `caffeineSize` | int | 200000 | 本地缓存最大容量 |
+
+### Etcd配置路径
+
+| 路径 | 说明 |
+|------|------|
+| `/jd/workers/{appName}/` | Worker节点信息 |
+| `/jd/rules/{appName}` | 探测规则配置 |
+| `/jd/hotkey/{appName}/` | 手动添加的热点Key |
+
+## 快速开始指南
+
+### 1. 环境准备
+- Java 8+
+- Etcd 3.x
+- Maven 3.x
+
+### 2. 添加依赖
 ```xml
 <dependency>
     <groupId>com.jd.platform.hotkey</groupId>
     <artifactId>hotkey-client</artifactId>
-    <version>${version}</version>
+    <version>0.0.4-SNAPSHOT</version>
 </dependency>
 ```
 
-### 2. 初始化客户端
+### 3. 启动Etcd
+```bash
+etcd --listen-client-urls http://0.0.0.0:2379 \
+     --advertise-client-urls http://127.0.0.1:2379
+```
 
+### 4. 配置规则
+在Etcd中设置规则:
+```bash
+etcdctl put /jd/rules/your-app-name '[{"key":"*","duration":300,"prefix":false}]'
+```
+
+### 5. 启动客户端
 ```java
-@PostConstruct
-public void initHotKey() {
-    ClientStarter.Builder builder = new ClientStarter.Builder();
-    ClientStarter starter = builder
-        .setAppName("your-app-name")
-        .setEtcdServer("http://127.0.0.1:2379")
-        .setPushPeriod(500L)        // 推送间隔，默认500ms
-        .setCaffeineSize(200000)    // 缓存容量，默认20万
-        .build();
-    starter.startPipeline();
+public class Application {
+    public static void main(String[] args) {
+        ClientStarter client = new ClientStarter.Builder()
+            .setAppName("your-app-name")
+            .setEtcdServer("127.0.0.1:2379")
+            .build();
+
+        client.startPipeline();
+
+        // 使用示例
+        HotKeyPusher.push("test:key");
+        boolean isHot = JdHotKeyStore.isHotKey("test:key");
+        System.out.println("Is hot key: " + isHot);
+    }
 }
 ```
 
-### 3. 使用热Key功能
+### 6. 监控和调试
+- 查看日志输出确认连接状态
+- 使用Etcd客户端查看配置和热点Key
+- 监控缓存命中率和推送频率
 
-```java
-// 判断key是否为热key
-if (JdHotKeyStore.isHotKey("user:123")) {
-    // 从本地缓存获取值
-    Object value = JdHotKeyStore.get("user:123");
-    // 处理热key逻辑
-}
+## 工作流程详解
 
-// 智能设置值（仅当key是热key时）
-JdHotKeyStore.smartSet("user:123", userInfo);
-
-// 强制设置值
-JdHotKeyStore.forceSet("user:123", userInfo);
-
-// 删除key
-JdHotKeyStore.remove("user:123");
+### 1. 初始化流程
+```
+ClientStarter.startPipeline()
+    ├── 设置Caffeine缓存大小
+    ├── 初始化Etcd配置中心
+    ├── 启动定时推送器 (Key推送 + 统计推送)
+    ├── 启动Worker重连器
+    ├── 注册事件总线订阅者
+    └── 启动Etcd监听器
 ```
 
-## 配置说明
-
-### 应用配置
-
-```yaml
-etcd:
-  server: ${etcdServer:http://127.0.0.1:2379}
-
-spring:
-  application:
-    name: ${name:your-app-name}
+### 2. Key探测流程
+```
+业务调用 HotKeyPusher.push(key)
+    ├── 检查Key是否在规则范围内
+    ├── 如果在规则内，添加到收集器
+    ├── 定时推送器批量发送到Worker
+    ├── Worker分析后推送热点Key到Etcd
+    ├── 客户端监听到热点Key事件
+    └── 更新本地缓存
 ```
 
-### 客户端配置参数
-
-| 参数 | 说明 | 默认值 | 建议值 |
-|------|------|--------|--------|
-| appName | 应用名称 | 必填 | 建议使用有意义的应用标识 |
-| etcdServer | etcd服务器地址 | 必填 | 支持多个地址，逗号分隔 |
-| pushPeriod | 推送间隔(毫秒) | 500ms | 根据QPS调整，建议100-1000ms |
-| caffeineSize | 本地缓存容量 | 200000 | 根据内存情况调整，建议5万-50万 |
-
-## 架构设计
-
-### 核心组件
-
+### 3. 缓存访问流程
 ```
-ClientStarter (启动器)
-├── EtcdStarter (配置中心管理)
-├── PushSchedulerStarter (推送调度器)
-├── WorkerRetryConnector (Worker重连器)
-└── EventBusCenter (事件总线)
+业务调用 JdHotKeyStore.isHotKey(key)
+    ├── 检查本地缓存是否存在
+    ├── 如果不存在且在规则内，上报Key
+    ├── 如果存在但临近过期，续期上报
+    ├── 统计访问次数
+    └── 返回是否为热点Key
 ```
 
-### 事件驱动架构
+## 设计模式和架构原则
 
-#### 事件类型与订阅者
+### 1. 设计模式
+- **Builder模式**: ClientStarter使用Builder模式进行配置
+- **工厂模式**: CacheFactory、KeyHandlerFactory等工厂类
+- **观察者模式**: 基于EventBus的事件驱动架构
+- **策略模式**: 不同类型的Key收集器和推送器
+- **单例模式**: NettyClient、EventBusCenter等核心组件
 
-| 事件类型 | 订阅者 | 触发时机 | 处理逻辑 |
-|----------|--------|----------|----------|
-| **WorkerInfoChangeEvent** | WorkerChangeSubscriber | Worker节点信息变化 | 连接新的Worker节点，管理连接状态 |
-| **ReceiveNewKeyEvent** | ReceiveNewKeySubscribe | 接收到新的热Key | 更新本地缓存，处理热Key的增删 |
-| **KeyRuleInfoChangeEvent** | KeyRuleHolder | Key规则配置变化 | 重建本地规则缓存，更新探测策略 |
+### 2. 架构原则
+- **单一职责**: 每个类都有明确的职责边界
+- **开闭原则**: 支持扩展新的缓存实现和推送策略
+- **依赖倒置**: 面向接口编程，降低耦合度
+- **异步处理**: 网络通信和事件处理都采用异步方式
+- **容错设计**: 网络断线重连、配置变更容错等
 
-#### 事件触发流程
+## 注意事项
 
-```
-etcd配置变化 → EtcdStarter监听 → 发布事件 → EventBusCenter → 订阅者处理
-    ↓
-Worker节点变化 → WorkerInfoChangeEvent → WorkerChangeSubscriber → 连接管理
-    ↓
-热Key变化 → ReceiveNewKeyEvent → ReceiveNewKeySubscribe → 缓存更新
-    ↓
-规则变化 → KeyRuleInfoChangeEvent → KeyRuleHolder → 规则重建
-```
+1. **应用名称**: 必须设置唯一的应用名称，避免不同应用间的配置冲突
+2. **Etcd连接**: 确保Etcd服务可用，客户端会定期重试连接
+3. **规则配置**: 规则变更会实时生效，无需重启应用
+4. **缓存容量**: 根据实际内存情况调整缓存大小
+5. **网络延迟**: 推送周期建议不要设置过小，避免网络压力
+6. **线程安全**: 所有API都是线程安全的，可以在多线程环境中使用
 
-#### 事件来源详解
+## 性能优化建议
 
-1. **Worker信息变化事件**
-   - 来源：etcd中Worker节点注册信息变化
-   - 处理：自动连接新Worker，清理断开的连接
-   - 作用：实现Worker节点的动态发现和故障转移
+1. **批量推送**: 客户端会自动聚合Key进行批量推送，减少网络开销
+2. **缓存预热**: 对于已知的热点Key，可以提前调用`forceSet`进行预热
+3. **规则优化**: 合理设置规则的缓存时长，平衡内存使用和性能
+4. **监控指标**: 关注缓存命中率、推送频率等关键指标
+5. **资源限制**: 根据应用规模调整线程池和缓存大小
 
-2. **热Key事件**
-   - 来源1：etcd中手工添加/删除的热Key
-   - 来源2：Worker节点推送的探测结果
-   - 处理：更新本地缓存，同步热Key状态
-   - 作用：保持本地缓存与分布式状态的一致性
+## 故障排查
 
-3. **规则变化事件**
-   - 来源：etcd中Key探测规则配置变化
-   - 处理：重建本地规则缓存，更新缓存策略
-   - 作用：支持运行时动态调整探测规则
+### 常见问题
 
-### 数据流
+1. **连接Etcd失败**
+   - 检查Etcd服务是否启动
+   - 验证网络连通性
+   - 确认Etcd地址配置正确
 
-```
-应用访问Key → 本地缓存查询 → 热Key判断 → 上报Worker → 规则匹配 → 本地缓存更新
-```
+2. **热点Key不生效**
+   - 检查规则配置是否正确
+   - 确认Key是否匹配规则
+   - 查看Worker节点是否正常
 
-### 缓存策略
+3. **缓存不命中**
+   - 确认Key已被识别为热点
+   - 检查缓存是否已过期
+   - 验证缓存容量设置
 
-- **L1缓存**: 本地Caffeine缓存，提供纳秒级访问
-- **L2缓存**: 分布式Worker缓存，提供全局热Key共享
-- **过期策略**: TTL过期 + 访问频率衰减
+### 日志级别
+- `INFO`: 正常运行信息
+- `WARN`: 警告信息，如Worker连接失败
+- `ERROR`: 错误信息，如Etcd连接异常
 
-## 性能特性
+---
 
-### 缓存性能
-- **读取性能**: 纳秒级本地缓存访问
-- **写入性能**: 异步批量推送，最小化性能影响
-- **内存效率**: 智能内存管理，支持大容量缓存
-
-### 网络性能
-- **批量传输**: 批量推送减少网络开销
-- **连接复用**: 长连接复用，减少连接建立开销
-- **负载均衡**: 智能分发，充分利用Worker资源
-
-## 高可用特性
-
-### 故障容错
-- **Worker故障转移**: 自动检测Worker故障并切换
-- **Etcd高可用**: 支持多Etcd节点，避免单点故障
-- **连接重试**: 自动重连机制，保证服务连续性
-
-### 配置热更新
-- **规则热更新**: 支持运行时更新探测规则
-- **Worker动态发现**: 自动发现新增Worker节点
-- **配置同步**: 实时同步配置变更
-
-## 监控与运维
-
-### 关键指标
-- **缓存命中率**: 本地缓存命中情况
-- **推送延迟**: key上报到Worker的延迟时间
-- **连接状态**: Worker节点连接健康状态
-- **内存使用**: 本地缓存内存占用情况
-
-### 日志管理
-- **结构化日志**: 提供详细的运行日志
-- **错误追踪**: 完整的错误堆栈和上下文信息
-- **性能日志**: 关键操作的性能统计信息
-
-## 最佳实践
-
-### 1. 应用集成
-- 在应用启动时初始化客户端
-- 使用Spring的@PostConstruct注解确保初始化顺序
-- 配置合适的推送间隔和缓存容量
-
-### 2. 事件处理优化
-- 合理配置事件监听器，避免阻塞主流程
-- 监控事件处理性能，及时发现性能瓶颈
-- 利用事件驱动的异步特性，提升系统响应性
-
-### 3. 性能优化
-- 根据应用QPS调整推送间隔
-- 合理设置缓存容量，避免内存溢出
-- 监控缓存命中率，优化key规则配置
-
-### 4. 高可用部署
-- 配置多个Etcd节点
-- 部署多个Worker节点
-- 监控系统健康状态
-
-### 5. 故障处理
-- 配置合适的重连策略
-- 监控网络连接状态
-- 设置合理的超时时间
-
-## 常见问题
-
-### Q: 如何判断key是否为热key？
-A: 使用`JdHotKeyStore.isHotKey(key)`方法，该方法会自动上报key信息并返回是否为热key。
-
-### Q: 推送间隔设置多少合适？
-A: 建议根据应用QPS设置，单机QPS 10个时建议500ms，QPS 100个时建议100ms。
-
-### Q: 本地缓存容量如何设置？
-A: 根据可用内存和预期热key数量设置，建议5万-50万之间，默认20万。
-
-### Q: 支持哪些配置中心？
-A: 目前支持Etcd，可通过扩展IConfigCenter接口支持其他配置中心。
-
-### Q: 事件驱动架构有什么优势？
-A: 事件驱动架构提供了松耦合、异步处理、实时响应等优势，使得系统能够灵活地响应各种变化，同时保持代码的清晰和可维护性。
-
-### Q: 如何处理事件处理失败的情况？
-A: 系统提供了完善的异常处理机制，事件处理失败不会影响主流程，同时会记录详细的错误日志便于问题排查。
-
-## 版本历史
-
-- **v0.0.4**: 支持动态配置更新、Worker故障转移
-- **v0.0.3**: 优化缓存性能、增加批量推送
-- **v0.0.2**: 支持多Worker负载均衡
-- **v0.0.1**: 基础热key探测功能
-
-## 贡献指南
-
-欢迎提交Issue和Pull Request来改进这个项目。
-
-## 许可证
-
-本项目采用 Apache License 2.0 许可证。 
+更多详细信息请参考项目源码和相关文档。如有问题，请提交Issue或联系开发团队。
